@@ -1,29 +1,32 @@
 import json
 import pickle
 import random
+import re
 import nltk
 import numpy
-from Modul.webscraping import scrape_data
+import unicodedata
+from nltk.corpus import stopwords
+
+from webscraping import scrape_data
 from nltk.stem import LancasterStemmer
 from tensorflow.python.keras.layers import Dense
 from tensorflow.python.keras.models import Sequential
 from tensorflow.python.keras.models import model_from_yaml
-from Module.search_api import getSearchResults
-
-
+from search_api import getSearchResults
+from update import update_data
 
 def main():
     print(getSearchResults("example query"))
+
+
 nltk.download('punkt')
 
 stemmer = LancasterStemmer()
 with open("DataJson/data.json", encoding='utf-8') as file:
     data = json.load(file)
 
-
-
 try:
-    with open("Model/chatbot.pickle", "rb") as file:
+    with open("chatbot.pickle", "rb") as file:
         words, labels, training, output = pickle.load(file)
 
 except:
@@ -72,11 +75,11 @@ except:
     training = numpy.array(training)
     output = numpy.array(output)
 
-    with open("Model/chatbot.pickle", "wb") as file:
+    with open("chatbot.pickle", "wb") as file:
         pickle.dump((words, labels, training, output), file)
 
 try:
-    yaml_file = open('Model/chatbotmodel.yaml', 'r')
+    yaml_file = open('chatbotmodel.yaml', 'r')
     loaded_model_yaml = yaml_file.read()
     yaml_file.close()
     myChatModel = model_from_yaml(loaded_model_yaml)
@@ -98,13 +101,37 @@ except:
     # serialize model to yaml and save it to disk
     model_json = myChatModel.to_json()
 
-    with open("Model/chatbotmodel.yaml", "w") as y_file:
+    with open("chatbotmodel.yaml", "w") as y_file:
         y_file.write(model_json)
 
     # serialize weights to HDF5
     myChatModel.save_weights("chatbotmodel.h5")
     print("Saved model from disk")
 
+
+def preprocess_text(text):
+    # Loại bỏ dấu câu và dấu nặng
+    text = re.sub(r'[^\w\s]', '', text)
+
+    # Chuẩn hóa văn bản
+    text = text.lower()
+
+    # Loại bỏ dấu tiếng Việt
+    text = unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode("utf-8")
+
+    # Tách từ
+    words = nltk.word_tokenize(text)
+
+    # Loại bỏ từ dừng
+    words = [word for word in words if word not in stopwords.words('english')]
+
+    # Stemming
+    words = [stemmer.stem(word) for word in words]
+
+    # Kết hợp lại thành câu
+    processed_text = ' '.join(words)
+
+    return processed_text
 
 def bag_of_words(s, words):
     bag = [0 for _ in range(len(words))]
@@ -121,7 +148,8 @@ def bag_of_words(s, words):
 
 
 def chatWithBot(inputText):
-    currentText = bag_of_words(inputText, words)
+    processed_input = preprocess_text(inputText)
+    currentText = bag_of_words(processed_input, words)
     currentTextArray = [currentText]
     numpyCurrentText = numpy.array(currentTextArray)
 
@@ -134,11 +162,12 @@ def chatWithBot(inputText):
 
     if result[0][result_index] > 0.7:
         scrape_data(tag)
+        update_data(tag)
         with open("DataJson/data.json", encoding='utf-8') as file:
             new_data = json.load(file)
         for tg in new_data["intents"]:
             if tg['tag'] == tag:
-                return random.sample(tg["responses"],2)
+                return random.sample(tg["responses"], 2)
 
         return "Try again"
 
@@ -156,8 +185,4 @@ def chat():
 
         print(chatWithBot(inp))
 
-
 # chat()
-
-
-
